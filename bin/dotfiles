@@ -227,6 +227,7 @@ function do_stuff() {
       fi
     fi
     # Do stuff.
+    echo "$method_do" "$base" "$file"
     "$method_do" "$base" "$file"
   done
 }
@@ -260,8 +261,7 @@ if [[ ! -d $DOTFILES ]]; then
   new_dotfiles_install=1
   prompt_delay=15
   e_header "Downloading dotfiles"
-  do_stuff 'copy' 
-  git clone --recursive https://github.com/${github_user:-vhladama}/${github_reponame:-topicaldotfiles}.git $DOTFILES
+  git clone --recursive https://github.com/${github_user:-vhladama}/${github_reponame:-topicaldotfiles}.git --config branch.autosetuprebase=always $DOTFILES 
   cd $DOTFILES
   # temporary until we get changes merged into master
   git checkout baseTopics
