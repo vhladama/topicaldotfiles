@@ -20,11 +20,9 @@ exit; fi
 # GENERAL PURPOSE EXPORTED VARS / FUNCTIONS
 ###########################################
 
+# if user has exported their own DOTFILES path already, use that
+# instead of default (~/.dotfiles)
 export DOTFILES=${DOTFILES-~/.dotfiles}
-# Where the magic happens.V
-# if [ -z "$DOTFILES" ]; then
-#   export DOTFILES=~/.dotfiles
-# fi
 
 # Logging stuff.
 function e_header()   { echo -e "\n\033[1m$@\033[0m"; }
@@ -66,38 +64,12 @@ function path_remove() {
 }
 
 
-# Given strings containing space-delimited words A and B, "setdiff A B" will
-# return all words in A that do not exist in B. Arrays in bash are insane
-# (and not in a good way).
-# From http://stackoverflow.com/a/1617303/142339
-function setdiff() {
-  local debug skip a b
-  if [[ "$1" == 1 ]]; then debug=1; shift; fi
-  if [[ "$1" ]]; then
-    local setdiffA setdiffB setdiffC
-    setdiffA=($1); setdiffB=($2)
-  fi
-  setdiffC=()
-  for a in "${setdiffA[@]}"; do
-    skip=
-    for b in "${setdiffB[@]}"; do
-      [[ "$a" == "$b" ]] && skip=1 && break
-    done
-    [[ "$skip" ]] || setdiffC=("${setdiffC[@]}" "$a")
-  done
-  [[ "$debug" ]] && for a in setdiffA setdiffB setdiffC; do
-    echo "$a ($(eval echo "\${#$a[*]}")) $(eval echo "\${$a[*]}")" 1>&2
-  done
-  [[ "$1" ]] && echo "${setdiffC[@]}"
-}
-
 # If this file was being sourced, exit now.
 [[ "$1" == "source" ]] && return
 
-
-###########################################
-# INTERNAL DOTFILES "INIT" VARS / FUNCTIONS
-###########################################
+user () {
+  printf "\r  [ \033[0;33m??\033[0m ] $1\n"
+}
 
 link_file () {
   local src=$1 dst=$2
@@ -136,6 +108,7 @@ link_file () {
           * )
             ;;
         esac
+        echo ''
       fi
     fi
 
@@ -151,7 +124,8 @@ link_file () {
 
     if [ "$backup" == "true" ]
     then
-      backup_path="${backup_dir}/${dst}"
+      backup_path="${backup_dir}/$(basename $dst)}"
+      mkdir -p "$backup_dir"
       mv "$dst" "$backup_path"
       backups_made=1
       e_success "moved $dst to ${backup_path}"
@@ -170,8 +144,6 @@ link_file () {
   fi
 }
 
-# Enough with the functions, let's do stuff.
-export prompt_delay=5
 
 # Ensure that we can actually, like, compile anything.
 if [[ ! "$(type -P gcc)" ]] && is_osx; then
@@ -195,8 +167,6 @@ fi
 # Initialize.
 if [[ ! -d $DOTFILES ]]; then
   # $DOTFILES directory doesn't exist? Clone it!
-  new_dotfiles_install=1
-  prompt_delay=15
   e_header "Downloading dotfiles"
   git clone --recursive https://github.com/${github_user:-vhladama}/${github_reponame:-topicaldotfiles}.git --config branch.autosetuprebase=always $DOTFILES 
   cd $DOTFILES
@@ -223,28 +193,38 @@ export PATH
 shopt -s dotglob
 shopt -s nullglob
 
-# Create caches dir and init subdir, if they don't already exist.
-mkdir -p "$DOTFILES/caches/init"
 
 # If backups are needed, this is where they'll go.
-backup_dir="$DOTFILES/backups/$(date "+%Y_%m_%d-%H_%M_%S")/"
+backup_dir="$DOTFILES/backups/$(date "+%Y_%m_%d-%H_%M_%S")"
 backups_made=
 
-topic_dirs=(topics-enabled/*)
-for topic_dir in "${topic_dirs[@]}"; do :
-  echo "symlinking $topic_dir"
-  for src in $(find -H "$topic_dir" -maxdepth 2 -name '*.symlink' -not -path '*.git*')
+install_dotfiles () {
+  local overwrite_all=false backup_all=false skip_all=false
+
+  # find subdirectories of topics-enabled, including symlinks
+  for topic_dir in $(find -H "$DOTFILES/topics-enabled" -mindepth 1 -maxdepth 1 -type l -o -type d)
   do
-    dst="$HOME/.$(basename "${src%.*}")"
-    link_file "$src" "$dst"
+    for src in $(find -H "$topic_dir" -maxdepth 2 -name '*.symlink' -not -path '*.git*')
+    do
+      dst="$HOME/$(basename "${src%.*}")"
+      link_file "$src" "$dst"
+    done
+    init_file="${topic_dir}/init.sh"
+    if [[ -f "$init_file" ]]; then
+      echo "sourcing $init_file"
+      cd $topic_dir
+      source $init_file
+      cd $DOTFILES
+    fi
   done
-done
 
+  # Alert if backups were made.
+  if [[ "$backups_made" ]]; then
+    echo -e "\nBackups were moved to ~/${backup_dir#$HOME/}/"
+  fi
 
-# Alert if backups were made.
-if [[ "$backups_made" ]]; then
-  echo -e "\nBackups were moved to ~/${backup_dir#$HOME/}"
-fi
+  # All done!
+  e_header "All done!"
+}
 
-# All done!
-e_header "All done!"
+install_dotfiles
