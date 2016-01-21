@@ -20,8 +20,11 @@ exit; fi
 # GENERAL PURPOSE EXPORTED VARS / FUNCTIONS
 ###########################################
 
-# Where the magic happens.
-export DOTFILES=~/.dotfiles
+export DOTFILES=${DOTFILES-~/.dotfiles}
+# Where the magic happens.V
+# if [ -z "$DOTFILES" ]; then
+#   export DOTFILES=~/.dotfiles
+# fi
 
 # Logging stuff.
 function e_header()   { echo -e "\n\033[1m$@\033[0m"; }
@@ -160,36 +163,6 @@ function setdiff() {
 # INTERNAL DOTFILES "INIT" VARS / FUNCTIONS
 ###########################################
 
-# Initialize.
-init_file=$DOTFILES/caches/init/selected
-function init_files() {
-  local i f dirname oses os opt remove
-  dirname="$(dirname "$1")"
-  f=("$@")
-  menu_options=(); menu_selects=()
-  for i in "${!f[@]}"; do menu_options[i]="$(basename "${f[i]}")"; done
-  if [[ -e "$init_file" ]]; then
-    # Read cache file if possible
-    IFS=$'\n' read -d '' -r -a menu_selects < "$init_file"
-  else
-    # Otherwise default to all scripts not specifically for other OSes
-    oses=($(get_os 1))
-    for opt in "${menu_options[@]}"; do
-      remove=
-      for os in "${oses[@]}"; do
-        [[ "$opt" =~ (^|[^a-z])$os($|[^a-z]) ]] && remove=1 && break
-      done
-      [[ "$remove" ]] || menu_selects=("${menu_selects[@]}" "$opt")
-    done
-  fi
-  prompt_menu "Run the following init scripts?" $prompt_delay
-  # Write out cache file for future reading.
-  rm "$init_file" 2>/dev/null
-  for i in "${!menu_selects[@]}"; do
-    echo "${menu_selects[i]}" >> "$init_file"
-    echo "$dirname/${menu_selects[i]}"
-  done
-}
 function init_do() {
   e_header "Sourcing $(basename "$2")"
   source "$2"
@@ -222,20 +195,22 @@ function link_do() {
 # Copy, link, init, etc.
 function do_stuff() {
   local base dest skip
-  local files=($DOTFILES/$1/*)
-  [[ $(declare -f "$1_files") ]] && files=($($1_files "${files[@]}"))
+  local method=$1
+  # local topic=$2
+  local files=($DOTFILES/$method/*)
+  [[ $(declare -f "$method_files") ]] && files=($($method_files "${files[@]}"))
   # No files? abort.
   if (( ${#files[@]} == 0 )); then return; fi
   # Run _header function only if declared.
-  [[ $(declare -f "$1_header") ]] && "$1_header"
+  [[ $(declare -f "$method_header") ]] && "$method_header"
   # Iterate over files.
   for file in "${files[@]}"; do
     base="$(basename $file)"
     dest="$HOME/$base"
     # Run _test function only if declared.
-    if [[ $(declare -f "$1_test") ]]; then
+    if [[ $(declare -f "$method_test") ]]; then
       # If _test function returns a string, skip file and print that message.
-      skip="$("$1_test" "$file" "$dest")"
+      skip="$("$method_test" "$file" "$dest")"
       if [[ "$skip" ]]; then
         e_error "Skipping ~/$base, $skip."
         continue
@@ -252,7 +227,7 @@ function do_stuff() {
       fi
     fi
     # Do stuff.
-    "$1_do" "$base" "$file"
+    "$method_do" "$base" "$file"
   done
 }
 
@@ -285,8 +260,11 @@ if [[ ! -d $DOTFILES ]]; then
   new_dotfiles_install=1
   prompt_delay=15
   e_header "Downloading dotfiles"
-  git clone --recursive git://github.com/${github_user:-cowboy}/dotfiles.git $DOTFILES
+  do_stuff 'copy' 
+  git clone --recursive https://github.com/${github_user:-vhladama}/${github_reponame:-topicaldotfiles}.git $DOTFILES
   cd $DOTFILES
+  # temporary until we get changes merged into master
+  git checkout baseTopics
 elif [[ "$1" != "restart" ]]; then
   # Make sure we have the latest files.
   e_header "Updating dotfiles"
@@ -317,8 +295,10 @@ backup=
 
 # Execute code for each file in these subdirectories.
 do_stuff "copy"
-do_stuff "link"
-do_stuff "init"
+# need to replace this with the topic-specific version
+# do_stuff "link"
+# need to replace this with the topic-specific version
+# do_stuff "init"
 
 # Alert if backups were made.
 if [[ "$backup" ]]; then
