@@ -65,70 +65,6 @@ function path_remove() {
   echo "$path"
 }
 
-# Display a fancy multi-select menu.
-# Inspired by http://serverfault.com/a/298312
-function prompt_menu() {
-  local exitcode prompt choices nums i n
-  exitcode=0
-  if [[ "$2" ]]; then
-    _prompt_menu_draws "$1"
-    read -t $2 -n 1 -sp "To edit this list, press any key within $2 seconds. "
-    exitcode=$?
-    echo ""
-  fi 1>&2
-  if [[ "$exitcode" == 0 ]]; then
-    prompt="Toggle options (Separate options with spaces, ENTER when done): "
-    while _prompt_menu_draws "$1" 1 && read -rp "$prompt" nums && [[ "$nums" ]]; do
-      _prompt_menu_adds $nums
-    done
-  fi 1>&2
-  _prompt_menu_adds
-}
-
-function _prompt_menu_iter() {
-  local i sel state
-  local fn=$1; shift
-  for i in "${!menu_options[@]}"; do
-    state=0
-    for sel in "${menu_selects[@]}"; do
-      [[ "$sel" == "${menu_options[i]}" ]] && state=1 && break
-    done
-    $fn $state $i "$@"
-  done
-}
-
-function _prompt_menu_draws() {
-  e_header "$1"
-  _prompt_menu_iter _prompt_menu_draw "$2"
-}
-
-function _prompt_menu_draw() {
-  local modes=(error success)
-  if [[ "$3" ]]; then
-    e_${modes[$1]} "$(printf "%2d) %s\n" $(($2+1)) "${menu_options[$2]}")"
-  else
-    e_${modes[$1]} "${menu_options[$2]}"
-  fi
-}
-
-function _prompt_menu_adds() {
-  _prompt_menu_result=()
-  _prompt_menu_iter _prompt_menu_add "$@"
-  menu_selects=("${_prompt_menu_result[@]}")
-}
-
-function _prompt_menu_add() {
-  local state i n keep match
-  state=$1; shift
-  i=$1; shift
-  for n in "$@"; do
-    if [[ $n =~ ^[0-9]+$ ]] && (( n-1 == i )); then
-      match=1; [[ "$state" == 0 ]] && keep=1
-    fi
-  done
-  [[ ! "$match" && "$state" == 1 || "$keep" ]] || return
-  _prompt_menu_result=("${_prompt_menu_result[@]}" "${menu_options[i]}")
-}
 
 # Given strings containing space-delimited words A and B, "setdiff A B" will
 # return all words in A that do not exist in B. Arrays in bash are insane
@@ -163,77 +99,78 @@ function setdiff() {
 # INTERNAL DOTFILES "INIT" VARS / FUNCTIONS
 ###########################################
 
-function init_do() {
-  e_header "Sourcing $(basename "$2")"
-  source "$2"
-}
+link_file () {
+  local src=$1 dst=$2
 
-# Copy files.
-function copy_header() { e_header "Copying files into home directory"; }
-function copy_test() {
-  if [[ -e "$2" && ! "$(cmp "$1" "$2" 2> /dev/null)" ]]; then
-    echo "same file"
-  elif [[ "$1" -ot "$2" ]]; then
-    echo "destination file newer"
-  fi
-}
-function copy_do() {
-  e_success "Copying ~/$1."
-  cp "$2" ~/
-}
+  local overwrite= backup= skip=
+  local action=
+  local backup_path=
 
-# Link files.
-function link_header() { e_header "Linking files into home directory"; }
-function link_test() {
-  [[ "$1" -ef "$2" ]] && echo "same file"
-}
-function link_do() {
-  e_success "Linking ~/$1."
-  ln -sf ${2#$HOME/} ~/
-}
+  if [ -f "$dst" -o -d "$dst" -o -L "$dst" ]
+  then
+    if [ "$overwrite_all" == "false" ] && [ "$backup_all" == "false" ] && [ "$skip_all" == "false" ]
+    then
+      local currentSrc="$(readlink $dst)"
 
-# Copy, link, init, etc.
-function do_stuff() {
-  local base dest skip
-  local method=$1
-  # local topic=$2
-  local files=($DOTFILES/$method/*)
-  [[ $(declare -f "$method_files") ]] && files=($($method_files "${files[@]}"))
-  # No files? abort.
-  if (( ${#files[@]} == 0 )); then return; fi
-  # Run _header function only if declared.
-  [[ $(declare -f "$method_header") ]] && "$method_header"
-  # Iterate over files.
-  for file in "${files[@]}"; do
-    base="$(basename $file)"
-    dest="$HOME/$base"
-    # Run _test function only if declared.
-    if [[ $(declare -f "$method_test") ]]; then
-      # If _test function returns a string, skip file and print that message.
-      skip="$("$method_test" "$file" "$dest")"
-      if [[ "$skip" ]]; then
-        e_error "Skipping ~/$base, $skip."
-        continue
-      fi
-      # Destination file already exists in ~/. Back it up!
-      if [[ -e "$dest" ]]; then
-        e_arrow "Backing up ~/$base."
-        # Set backup flag, so a nice message can be shown at the end.
-        backup=1
-        # Create backup dir if it doesn't already exist.
-        [[ -e "$backup_dir" ]] || mkdir -p "$backup_dir"
-        # Backup file / link / whatever.
-        mv "$dest" "$backup_dir"
+      if [ "$currentSrc" == "$src" ]
+      then
+        skip=true;
+      else
+        user "File already exists: $dst ($(basename "$src")), what do you want to do?\n\
+        [s]kip, [S]kip all, [o]verwrite, [O]verwrite all, [b]ackup, [B]ackup all?"
+        read -n 1 action
+
+        case "$action" in
+          o )
+            overwrite=true;;
+          O )
+            overwrite_all=true;;
+          b )
+            backup=true;;
+          B )
+            backup_all=true;;
+          s )
+            skip=true;;
+          S )
+            skip_all=true;;
+          * )
+            ;;
+        esac
       fi
     fi
-    # Do stuff.
-    echo "$method_do" "$base" "$file"
-    "$method_do" "$base" "$file"
-  done
+
+    overwrite=${overwrite:-$overwrite_all}
+    backup=${backup:-$backup_all}
+    skip=${skip:-$skip_all}
+
+    if [ "$overwrite" == "true" ]
+    then
+      rm -rf "$dst"
+      e_success "removed $dst"
+    fi
+
+    if [ "$backup" == "true" ]
+    then
+      backup_path="${backup_dir}/${dst}"
+      mv "$dst" "$backup_path"
+      backups_made=1
+      e_success "moved $dst to ${backup_path}"
+    fi
+
+    if [ "$skip" == "true" ]
+    then
+      e_success "skipped $src"
+    fi
+  fi
+
+  if [ "$skip" != "true" ]  # "false" or empty
+  then
+    ln -s "$1" "$2"
+    e_success "linked $1 to $2"
+  fi
 }
 
 # Enough with the functions, let's do stuff.
-
 export prompt_delay=5
 
 # Ensure that we can actually, like, compile anything.
@@ -291,17 +228,21 @@ mkdir -p "$DOTFILES/caches/init"
 
 # If backups are needed, this is where they'll go.
 backup_dir="$DOTFILES/backups/$(date "+%Y_%m_%d-%H_%M_%S")/"
-backup=
+backups_made=
 
-# Execute code for each file in these subdirectories.
-do_stuff "copy"
-# need to replace this with the topic-specific version
-# do_stuff "link"
-# need to replace this with the topic-specific version
-# do_stuff "init"
+topic_dirs=(topics-enabled/*)
+for topic_dir in "${topic_dirs[@]}"; do :
+  echo "symlinking $topic_dir"
+  for src in $(find -H "$topic_dir" -maxdepth 2 -name '*.symlink' -not -path '*.git*')
+  do
+    dst="$HOME/.$(basename "${src%.*}")"
+    link_file "$src" "$dst"
+  done
+done
+
 
 # Alert if backups were made.
-if [[ "$backup" ]]; then
+if [[ "$backups_made" ]]; then
   echo -e "\nBackups were moved to ~/${backup_dir#$HOME/}"
 fi
 
