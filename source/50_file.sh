@@ -3,6 +3,10 @@
 # dirs  755 drwxr-xr-x (777 minus 022)
 # umask 022
 
+function is_osx() {
+  [[ "$OSTYPE" =~ ^darwin ]] || return 1
+}
+
 # Always use color output for `ls`
 if is_osx; then
   alias ls="command ls -lG"
@@ -17,21 +21,15 @@ alias lh='ls -arth'
 # Easier navigation: .., ..., -
 alias ..='cd ..'
 alias ...='cd ../..'
-alias -- -='cd -'
+# alias -- -='cd -'
 
 # File size
 alias fs="stat -f '%z bytes'"
 alias df="df -h"
 alias du="du -h"
 
-
 # Create a new directory and enter it
 function md() {
   mkdir -p "$@" && cd "$@"
 }
 
-# Fast directory switching
-mkdir -p $DOTFILES/caches/z
-_Z_NO_PROMPT_COMMAND=1
-_Z_DATA=$DOTFILES/caches/z/z
-. $DOTFILES/vendor/z/z.sh
